@@ -3,10 +3,13 @@ const app = express();
 const mongoose = require("mongoose");
 const dotenv = require("dotenv").config();
 const bcrypt = require("bcrypt");
-const bodyParser = require("body-parser")
+const jwt = require("jsonwebtoken")
+const { userAuthorization } = require("./secureFunctions");
+// import { userAuthorization } from "./secureFunctions";
 
-app.use(bodyParser.json())
-app.use(bodyParser.urlencoded())
+app.use(express.urlencoded())
+app.use(express.json())
+
 mongoose.connect(process.env.MONGOURL, (err, res) => {
     if (err) throw err;
     console.log("connected");
@@ -34,6 +37,11 @@ app.get("/userList", (req, res, next) => {
     }
 })
 
+
+app.post("/accessData", userAuthorization, (req, res) => {
+    res.json({ message: "you are authorized" })
+})
+
 app.post("/user/login", (req, res, next) => {
     try {
         let data = user.find({ number: req.body.number }).exec();
@@ -41,12 +49,27 @@ app.post("/user/login", (req, res, next) => {
             res.send("error occured: ", err)
         })
         data.then(async (d) => {
-            console.log(d);
+
             if (req.body.password && d[0]?.password) {
-                console.log(req.body.password, d[0]?.password);
                 let comparisonResult = await bcrypt.compare(req.body.password, d[0]?.password);
-                console.log(comparisonResult);
-                if (comparisonResult) res.json({ message: "login successfull" });
+
+
+                //createAuthToken
+                // let token = jwt.sign(JSON.stringify(d[0]), process.env.jwtSecretkey, { expiresIn: process.env.tokenExpire }) //expiresIn can't set if payload in stringified
+                let token = jwt.sign(d[0].toJSON(), process.env.jwtSecretkey, { expiresIn: process.env.tokenExpire })
+                console.log(token);
+
+                if (comparisonResult) {
+                    res.json({
+                        message: "login successfull", userData: {
+                            data: d[0],
+                            token: {
+                                expiresIn: process.env.tokenExpire,
+                                token: token
+                            }
+                        }
+                    });
+                }
                 else res.json({ message: "login failed" });
             } else res.json({ message: "login failed" });
 
@@ -63,7 +86,7 @@ app.post("/user/create", async (req, res, next) => {
             let hashedPass = await bcrypt.hash(req.body.password, 10)
             let objToBeSaved = new user({ number: req.body.number, password: hashedPass });
             objToBeSaved.save((_err, _data) => {
-                console.log(_err);
+                // console.log(_err);
                 if (_err) {
                     if (_err.name === "MongoServerError" && _err.code === 11000) {
                         res.json({ messsage: "This number has already been registered!" });
